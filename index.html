@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎵 Jump, Jump, Wiggle! - Kids Music Video</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: 'Comic Sans MS', 'Chalkboard SE', cursive;
+        }
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+        .controls button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: inherit;
+            transition: transform 0.1s;
+        }
+        .controls button:hover { transform: scale(1.05); }
+        .controls button:active { transform: scale(0.95); }
+        #playBtn { background: #00b894; color: white; }
+        #pauseBtn { background: #fdcb6e; color: #2d3436; }
+        #resetBtn { background: #e17055; color: white; }
+        .timer {
+            position: fixed;
+            top: 15px;
+            right: 20px;
+            color: white;
+            font-family: monospace;
+            font-size: 16px;
+            background: rgba(0,0,0,0.5);
+            padding: 8px 14px;
+            border-radius: 20px;
+            z-index: 100;
+        }
+        .scene-label {
+            position: fixed;
+            top: 15px;
+            left: 20px;
+            color: white;
+            font-size: 14px;
+            background: rgba(0,0,0,0.5);
+            padding: 8px 14px;
+            border-radius: 20px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+    <div class="controls">
+        <button id="playBtn">▶ Play</button>
+        <button id="pauseBtn">⏸ Pause</button>
+        <button id="resetBtn">↺ Reset</button>
+    </div>
+    <div class="timer" id="timer">0:00 / 2:30</div>
+    <div class="scene-label" id="sceneLabel">🎬 Ready</div>
+
+    <script>
+    // ===== SETUP =====
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const W = 1920, H = 1080;
+
+    // Polyfill for roundRect (Edge/older browser support)
+    if (!ctx.roundRect) {
+        CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+            if (typeof r === 'number') r = [r, r, r, r];
+            const [tl, tr, br, bl] = r;
+            this.moveTo(x + tl, y);
+            this.lineTo(x + w - tr, y);
+            this.quadraticCurveTo(x + w, y, x + w, y + tr);
+            this.lineTo(x + w, y + h - br);
+            this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+            this.lineTo(x + bl, y + h);
+            this.quadraticCurveTo(x, y + h, x, y + h - bl);
+            this.lineTo(x, y + tl);
+            this.quadraticCurveTo(x, y, x + tl, y);
+            this.closePath();
+            return this;
+        };
+    }
+    const timerEl = document.getElementById('timer');
+    const sceneLabel = document.getElementById('sceneLabel');
+    const TOTAL_DURATION = 150; // 2:30 in seconds
+
+    let animId = null;
+    let startTime = null;
+    let elapsed = 0;
+    let isPlaying = false;
+    let isPaused = false;
+    let pauseTime = 0;
+
+    // ===== SCENE TIMELINE (seconds) =====
+    const SCENES = [
+        { name: 'intro',        start: 0,   end: 8   },
+        { name: 'verse1',       start: 8,   end: 32  },
+        { name: 'chorus1',      start: 32,  end: 52  },
+        { name: 'chorus1repeat',start: 52,  end: 62  },
+        { name: 'verse2',       start: 62,  end: 86  },
+        { name: 'chorus2',      start: 86,  end: 106 },
+        { name: 'funbreak',     start: 106, end: 122 },
+        { name: 'finalchorus',  start: 122, end: 142 },
+        { name: 'outro',        start: 142, end: 150 },
+    ];
+
+    // ===== LYRICS TIMELINE =====
+    const LYRICS = [
+        // Intro
+        { t: 0.5, text: "Hey! Hey!", dur: 1.5 },
+        { t: 2.0, text: "Are you ready?", dur: 1.5 },
+        { t: 3.5, text: "Can you jump?", dur: 1.5 },
+        { t: 5.0, text: "Can you wiggle?", dur: 1.5 },
+        { t: 6.5, text: "LET'S GO! 🚀", dur: 1.5 },
+        // Verse 1
+        { t: 8,  text: "Wake up, wake up, sunshine bright! ☀️", dur: 3 },
+        { t: 11, text: "Stretch your arms with all your might!", dur: 3 },
+        { t: 14, text: "Touch your toes, then touch the sky,", dur: 3 },
+        { t: 17, text: "Wave your hands and say, HI! HI! HI!", dur: 3 },
+        { t: 20, text: "Clap your hands — clap, clap, clap! 👏", dur: 3 },
+        { t: 23, text: "Stomp your feet — tap, tap, TAP!", dur: 3 },
+        { t: 26, text: "Turn around, one, two, three,", dur: 3 },
+        { t: 29, text: "Come and dance along with me!", dur: 3 },
+        // Chorus 1
+        { t: 32, text: "🎵 Jump, jump, jump!", dur: 2 },
+        { t: 34, text: "Wiggle, wiggle, wiggle!", dur: 2 },
+        { t: 36, text: "Clap, clap, clap!", dur: 2 },
+        { t: 38, text: "Giggle, giggle, giggle!", dur: 2 },
+        { t: 40, text: "Jump to the left!", dur: 2 },
+        { t: 42, text: "Jump to the right!", dur: 2 },
+        { t: 44, text: "Shake your body", dur: 2 },
+        { t: 46, text: "With all your might!", dur: 2 },
+        { t: 48, text: "Everybody shout —", dur: 2 },
+        { t: 50, text: "HEE-HEE-HEE! 🎵", dur: 2 },
+        // Chorus 1 repeat
+        { t: 52, text: "🎵 Jump, jump, jump!", dur: 2 },
+        { t: 54, text: "Wiggle, wiggle, wiggle!", dur: 2 },
+        { t: 56, text: "Clap, clap, clap!", dur: 2 },
+        { t: 58, text: "Giggle, giggle, giggle!", dur: 2 },
+        { t: 60, text: "HEE-HEE-HEE! 🎵", dur: 2 },
+        // Verse 2
+        { t: 62, text: "Uh-oh! Look! What's that I see? 👀", dur: 3 },
+        { t: 65, text: "A tiny monkey in a tree! 🐒", dur: 3 },
+        { t: 68, text: "Monkey says, Come follow me!", dur: 3 },
+        { t: 71, text: "Jump like a monkey — ONE, TWO, THREE!", dur: 3 },
+        { t: 74, text: "Hop like a bunny — hop, hop, hop! 🐰", dur: 3 },
+        { t: 77, text: "Flap like a bird — don't ever stop! 🐦", dur: 3 },
+        { t: 80, text: "Roar like a lion — ROAR! ROAR! ROAR! 🦁", dur: 3 },
+        { t: 83, text: "Then freeze like a statue on the floor!", dur: 3 },
+        // Chorus 2
+        { t: 86, text: "🎵 Jump, jump, jump!", dur: 2 },
+        { t: 88, text: "Wiggle, wiggle, wiggle!", dur: 2 },
+        { t: 90, text: "Clap, clap, clap!", dur: 2 },
+        { t: 92, text: "Giggle, giggle, giggle!", dur: 2 },
+        { t: 94, text: "Jump to the left!", dur: 2 },
+        { t: 96, text: "Jump to the right!", dur: 2 },
+        { t: 98, text: "Shake your body with all your might!", dur: 2 },
+        { t: 100, text: "Everybody shout —", dur: 2 },
+        { t: 102, text: "HEE-HEE-HEE! 🎵", dur: 4 },
+        // Fun break
+        { t: 106, text: "Can you clap?", dur: 2 },
+        { t: 108, text: "CLAP! CLAP! 👏", dur: 2 },
+        { t: 110, text: "Can you stomp?", dur: 2 },
+        { t: 112, text: "STOMP! STOMP! 👣", dur: 2 },
+        { t: 114, text: "Can you spin?", dur: 2 },
+        { t: 116, text: "SPIN! SPIN! 🌀", dur: 2 },
+        { t: 118, text: "Can you freeze?", dur: 2 },
+        { t: 120, text: "FREEEEEEZE! 🧊", dur: 2 },
+        // Final chorus
+        { t: 122, text: "🎵 Jump, jump, jump!", dur: 1.5 },
+        { t: 123.5, text: "Wiggle, wiggle, wiggle!", dur: 1.5 },
+        { t: 125, text: "Clap, clap, clap!", dur: 1.5 },
+        { t: 126.5, text: "Giggle, giggle, giggle!", dur: 1.5 },
+        { t: 128, text: "Jump to the left!", dur: 1.5 },
+        { t: 129.5, text: "Jump to the right!", dur: 1.5 },
+        { t: 131, text: "Shake your body with all your might!", dur: 2 },
+        { t: 133, text: "WE LOVE TO DANCE! 💃🕺", dur: 2.5 },
+        { t: 135.5, text: "One more time...", dur: 2 },
+        { t: 137.5, text: "JUMP! JUMP! JUMP! 🎵", dur: 3 },
+        // Outro
+        { t: 142, text: "Wiggle... wiggle...", dur: 2 },
+        { t: 144, text: "Clap... clap...", dur: 2 },
+        { t: 146, text: "Big smile! 😊", dur: 2 },
+        { t: 148, text: "BYEEEEEE! 👋", dur: 2 },
+    ];
+
+    // ===== PARTICLES =====
+    let particles = [];
+    let confetti = [];
+
+    function spawnParticles(x, y, count, colors) {
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 12,
+                vy: -Math.random() * 10 - 3,
+                size: 4 + Math.random() * 8,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                life: 1,
+                decay: 0.01 + Math.random() * 0.02,
+                shape: Math.random() > 0.5 ? 'circle' : 'star',
+            });
+        }
+    }
+
+    function spawnConfetti(count) {
+        for (let i = 0; i < count; i++) {
+            confetti.push({
+                x: Math.random() * W,
+                y: -20,
+                vx: (Math.random() - 0.5) * 4,
+                vy: 2 + Math.random() * 4,
+                size: 8 + Math.random() * 12,
+                color: ['#ff6b6b','#feca57','#48dbfb','#ff9ff3','#54a0ff','#5f27cd','#00d2d3','#1dd1a1'][Math.floor(Math.random() * 8)],
+                rotation: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.2,
+                life: 1,
+                decay: 0.003,
+            });
+        }
+    }
+
+    function updateParticles() {
+        particles = particles.filter(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.3;
+            p.life -= p.decay;
+            return p.life > 0;
+        });
+        confetti = confetti.filter(c => {
+            c.x += c.vx;
+            c.y += c.vy;
+            c.rotation += c.rotSpeed;
+            c.life -= c.decay;
+            return c.life > 0 && c.y < H + 50;
+        });
+    }
+
+    function drawParticles() {
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            if (p.shape === 'star') {
+                drawStar(p.x, p.y, 5, p.size, p.size / 2);
+            } else {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+        confetti.forEach(c => {
+            ctx.globalAlpha = c.life;
+            ctx.save();
+            ctx.translate(c.x, c.y);
+            ctx.rotate(c.rotation);
+            ctx.fillStyle = c.color;
+            ctx.fillRect(-c.size/2, -c.size/4, c.size, c.size/2);
+            ctx.restore();
+        });
+        ctx.globalAlpha = 1;
+    }
+
+    function drawStar(cx, cy, spikes, outerR, innerR) {
+        let rot = Math.PI / 2 * 3;
+        let step = Math.PI / spikes;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - outerR);
+        for (let i = 0; i < spikes; i++) {
+            ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+            rot += step;
+            ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+            rot += step;
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // ===== BACKGROUNDS =====
+    function drawBgIntro(t) {
+        // Rainbow gradient spinning
+        const gradient = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 600);
+        const hue = (t * 60) % 360;
+        gradient.addColorStop(0, `hsl(${hue}, 80%, 70%)`);
+        gradient.addColorStop(0.5, `hsl(${(hue+60)%360}, 80%, 60%)`);
+        gradient.addColorStop(1, `hsl(${(hue+120)%360}, 70%, 40%)`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, W, H);
+
+        // Spinning stars
+        for (let i = 0; i < 20; i++) {
+            const angle = (i / 20) * Math.PI * 2 + t * 2;
+            const r = 200 + i * 25;
+            const x = W/2 + Math.cos(angle) * r;
+            const y = H/2 + Math.sin(angle) * r;
+            ctx.fillStyle = `hsla(${(hue + i * 30) % 360}, 90%, 80%, 0.7)`;
+            drawStar(x, y, 5, 15 + Math.sin(t * 3 + i) * 5, 7);
+        }
+    }
+
+    function drawBgSunny(t) {
+        // Blue sky
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#74b9ff');
+        grad.addColorStop(0.6, '#dfe6e9');
+        grad.addColorStop(0.6, '#55efc4');
+        grad.addColorStop(1, '#00b894');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Sun
+        const sunPulse = Math.sin(t * 3) * 10;
+        ctx.fillStyle = '#ffeaa7';
+        ctx.beginPath();
+        ctx.arc(200, 150, 80 + sunPulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fdcb6e';
+        ctx.beginPath();
+        ctx.arc(200, 150, 60 + sunPulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sun rays
+        for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2 + t;
+            ctx.strokeStyle = '#ffeaa7';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(200 + Math.cos(a) * (95 + sunPulse), 150 + Math.sin(a) * (95 + sunPulse));
+            ctx.lineTo(200 + Math.cos(a) * (120 + sunPulse), 150 + Math.sin(a) * (120 + sunPulse));
+            ctx.stroke();
+        }
+
+        // Clouds
+        drawCloud(400 + Math.sin(t * 0.5) * 30, 120, 1.0);
+        drawCloud(900 + Math.sin(t * 0.3) * 20, 80, 1.3);
+        drawCloud(1400 + Math.sin(t * 0.4) * 25, 140, 0.9);
+
+        // Grass details
+        for (let i = 0; i < 30; i++) {
+            const gx = i * 70 + Math.sin(t + i) * 5;
+            const gy = H * 0.6;
+            ctx.strokeStyle = '#00b894';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(gx, gy);
+            ctx.quadraticCurveTo(gx + Math.sin(t * 2 + i) * 8, gy - 20, gx + 5, gy - 35);
+            ctx.stroke();
+        }
+    }
+
+    function drawBgJungle(t) {
+        // Dark green jungle
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, '#2d6a4f');
+        grad.addColorStop(0.4, '#40916c');
+        grad.addColorStop(0.7, '#52b788');
+        grad.addColorStop(1, '#1b4332');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Vines
+        for (let i = 0; i < 8; i++) {
+            ctx.strokeStyle = `hsl(140, ${50 + i * 5}%, ${30 + i * 3}%)`;
+            ctx.lineWidth = 4 + i;
+            ctx.beginPath();
+            const sx = i * 260 + 50;
+            ctx.moveTo(sx, 0);
+            for (let y = 0; y < H; y += 30) {
+                ctx.lineTo(sx + Math.sin(y * 0.02 + t + i) * 40, y);
+            }
+            ctx.stroke();
+        }
+
+        // Big leaves
+        for (let i = 0; i < 6; i++) {
+            ctx.fillStyle = `hsla(${130 + i * 10}, 60%, ${35 + i * 5}%, 0.6)`;
+            const lx = i * 350 + 100;
+            const ly = 50 + Math.sin(t + i) * 20;
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.rotate(Math.sin(t * 0.5 + i) * 0.1);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 80, 30, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // Ground
+        ctx.fillStyle = '#1b4332';
+        ctx.fillRect(0, H * 0.75, W, H * 0.25);
+    }
+
+    function drawBgParty(t) {
+        // Disco / party background
+        const hue = (t * 80) % 360;
+        ctx.fillStyle = `hsl(${hue}, 50%, 15%)`;
+        ctx.fillRect(0, 0, W, H);
+
+        // Disco tiles
+        const tileSize = 100;
+        for (let x = 0; x < W; x += tileSize) {
+            for (let y = 0; y < H; y += tileSize) {
+                const h = (x * 3 + y * 2 + t * 200) % 360;
+                const l = 30 + Math.sin(t * 5 + x * 0.01 + y * 0.01) * 20;
+                ctx.fillStyle = `hsl(${h}, 70%, ${l}%)`;
+                ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+            }
+        }
+
+        // Spotlight
+        const spotGrad = ctx.createRadialGradient(W/2, H * 0.3, 0, W/2, H * 0.3, 500);
+        spotGrad.addColorStop(0, 'rgba(255,255,255,0.2)');
+        spotGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = spotGrad;
+        ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawBgFreeze(t) {
+        // Icy blue
+        const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 700);
+        grad.addColorStop(0, '#dff9fb');
+        grad.addColorStop(1, '#0984e3');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Snowflakes
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        for (let i = 0; i < 40; i++) {
+            const sx = (i * 137 + t * 30) % W;
+            const sy = (i * 89 + t * 50) % H;
+            drawStar(sx, sy, 6, 5 + (i % 5), 2 + (i % 3));
+        }
+    }
+
+    function drawBgOutro(t) {
+        const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, 800);
+        grad.addColorStop(0, '#fd79a8');
+        grad.addColorStop(0.5, '#a29bfe');
+        grad.addColorStop(1, '#6c5ce7');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Hearts floating
+        for (let i = 0; i < 15; i++) {
+            const hx = (i * 140 + Math.sin(t + i) * 50) % W;
+            const hy = H - ((t * 40 + i * 80) % (H + 100));
+            ctx.fillStyle = `hsla(${340 + i * 5}, 80%, 70%, 0.5)`;
+            drawHeart(hx, hy, 15 + i * 2);
+        }
+    }
+
+    function drawHeart(x, y, size) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.beginPath();
+        ctx.moveTo(0, size * 0.3);
+        ctx.bezierCurveTo(-size, -size * 0.3, -size, -size, 0, -size * 0.5);
+        ctx.bezierCurveTo(size, -size, size, -size * 0.3, 0, size * 0.3);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawCloud(x, y, scale) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(x, y, 30 * scale, 0, Math.PI * 2);
+        ctx.arc(x + 30 * scale, y - 10 * scale, 25 * scale, 0, Math.PI * 2);
+        ctx.arc(x + 55 * scale, y, 28 * scale, 0, Math.PI * 2);
+        ctx.arc(x + 25 * scale, y + 10 * scale, 22 * scale, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // ===== CHARACTERS =====
+    function drawKid(x, y, t, action, scale = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        let legSwing = 0, armSwing = 0, bodyBob = 0, bodyTilt = 0, squash = 1, stretch = 1;
+
+        switch(action) {
+            case 'jump':
+                const jumpPhase = Math.abs(Math.sin(t * 4));
+                bodyBob = -jumpPhase * 80;
+                squash = 1 - jumpPhase * 0.1;
+                stretch = 1 + jumpPhase * 0.15;
+                armSwing = Math.sin(t * 8) * 0.8;
+                legSwing = Math.sin(t * 8) * 0.3;
+                break;
+            case 'wiggle':
+                bodyTilt = Math.sin(t * 6) * 0.2;
+                bodyBob = Math.sin(t * 4) * 10;
+                armSwing = Math.sin(t * 6) * 0.6;
+                break;
+            case 'clap':
+                armSwing = Math.sin(t * 10) * 0.8;
+                bodyBob = Math.abs(Math.sin(t * 5)) * 5;
+                break;
+            case 'spin':
+                bodyTilt = Math.sin(t * 4) * 0.3;
+                ctx.rotate(t * 6);
+                break;
+            case 'wave':
+                armSwing = Math.sin(t * 5) * 1.0;
+                bodyBob = Math.sin(t * 3) * 5;
+                break;
+            case 'dance':
+                legSwing = Math.sin(t * 5) * 0.5;
+                armSwing = Math.sin(t * 5) * 0.7;
+                bodyBob = Math.abs(Math.sin(t * 5)) * 15;
+                bodyTilt = Math.sin(t * 3) * 0.1;
+                break;
+            case 'freeze':
+                // Static pose, arms out
+                armSwing = -0.5;
+                break;
+            case 'walk':
+            default:
+                legSwing = Math.sin(t * 6) * 0.4;
+                armSwing = Math.sin(t * 6) * 0.4;
+                bodyBob = Math.abs(Math.sin(t * 6)) * 5;
+                break;
+        }
+
+        ctx.translate(0, bodyBob);
+        ctx.rotate(bodyTilt);
+        ctx.scale(squash, stretch);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(0, 100 - bodyBob, 35, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Back leg
+        ctx.save();
+        ctx.translate(-8, 40);
+        ctx.rotate(-legSwing);
+        ctx.fillStyle = '#6c5ce7';
+        ctx.beginPath();
+        ctx.roundRect(-8, 0, 16, 55, 6);
+        ctx.fill();
+        ctx.fillStyle = '#e17055';
+        ctx.beginPath();
+        ctx.roundRect(-10, 50, 22, 12, 4);
+        ctx.fill();
+        ctx.restore();
+
+        // Back arm
+        ctx.save();
+        ctx.translate(-20, -15);
+        ctx.rotate(armSwing + 0.2);
+        ctx.fillStyle = '#fd79a8';
+        ctx.beginPath();
+        ctx.roundRect(-7, 0, 14, 40, 5);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        ctx.beginPath();
+        ctx.arc(0, 44, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Body
+        ctx.fillStyle = '#fd79a8';
+        ctx.strokeStyle = '#e84393';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(-22, -35, 44, 75, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        // Belly star decoration
+        ctx.fillStyle = '#ffeaa7';
+        drawStar(0, 5, 5, 12, 6);
+
+        // Front leg
+        ctx.save();
+        ctx.translate(8, 40);
+        ctx.rotate(legSwing);
+        ctx.fillStyle = '#6c5ce7';
+        ctx.beginPath();
+        ctx.roundRect(-8, 0, 16, 55, 6);
+        ctx.fill();
+        ctx.fillStyle = '#e17055';
+        ctx.beginPath();
+        ctx.roundRect(-10, 50, 22, 12, 4);
+        ctx.fill();
+        ctx.restore();
+
+        // Front arm
+        ctx.save();
+        ctx.translate(20, -15);
+        ctx.rotate(-armSwing - 0.2);
+        ctx.fillStyle = '#fd79a8';
+        ctx.beginPath();
+        ctx.roundRect(-7, 0, 14, 40, 5);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        ctx.beginPath();
+        ctx.arc(0, 44, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Head
+        ctx.save();
+        ctx.translate(0, -55);
+
+        // Face
+        ctx.fillStyle = '#ffeaa7';
+        ctx.strokeStyle = '#fdcb6e';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Hair (pigtails style)
+        ctx.fillStyle = '#e17055';
+        ctx.beginPath();
+        ctx.arc(0, -20, 28, Math.PI, 0);
+        ctx.fill();
+        // Pigtails
+        ctx.beginPath();
+        ctx.arc(-28, -5, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(28, -5, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        const blink = Math.sin(t * 2) > 0.95 ? 0.1 : 1;
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.ellipse(-10, -5, 8, 9 * blink, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(10, -5, 8, 9 * blink, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pupils
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(-8, -3, 4 * blink, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(12, -3, 4 * blink, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eye shine
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(-7, -6, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(13, -6, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Mouth (big smile)
+        ctx.strokeStyle = '#e17055';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 8, 12, 0.2, Math.PI - 0.2);
+        ctx.stroke();
+
+        // Blush
+        ctx.fillStyle = 'rgba(253, 121, 168, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(-18, 5, 7, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(18, 5, 7, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore(); // head
+        ctx.restore(); // character
+    }
+
+    function drawMonkey(x, y, t, scale = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        const bounce = Math.sin(t * 5) * 15;
+        ctx.translate(0, bounce);
+
+        // Body
+        ctx.fillStyle = '#a0522d';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 30, 40, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Belly
+        ctx.fillStyle = '#deb887';
+        ctx.beginPath();
+        ctx.ellipse(0, 5, 20, 28, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Arms
+        ctx.fillStyle = '#a0522d';
+        ctx.save();
+        ctx.translate(-30, -15);
+        ctx.rotate(Math.sin(t * 6) * 0.8);
+        ctx.beginPath();
+        ctx.roundRect(-6, 0, 12, 40, 5);
+        ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.translate(30, -15);
+        ctx.rotate(-Math.sin(t * 6) * 0.8);
+        ctx.beginPath();
+        ctx.roundRect(-6, 0, 12, 40, 5);
+        ctx.fill();
+        ctx.restore();
+
+        // Head
+        ctx.fillStyle = '#a0522d';
+        ctx.beginPath();
+        ctx.arc(0, -50, 25, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Face
+        ctx.fillStyle = '#deb887';
+        ctx.beginPath();
+        ctx.ellipse(0, -45, 18, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.fillStyle = '#deb887';
+        ctx.beginPath();
+        ctx.arc(-25, -50, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(25, -50, 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(-8, -50, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(8, -50, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Smile
+        ctx.strokeStyle = '#5d4037';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -42, 10, 0.3, Math.PI - 0.3);
+        ctx.stroke();
+
+        // Tail
+        ctx.strokeStyle = '#a0522d';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(0, 30);
+        ctx.quadraticCurveTo(40 + Math.sin(t * 3) * 15, 10, 35, -20);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function drawBunny(x, y, t, scale = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        const hop = Math.abs(Math.sin(t * 6)) * 30;
+        ctx.translate(0, -hop);
+
+        // Body
+        ctx.fillStyle = '#dfe6e9';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 25, 35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(0, -40, 22, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.beginPath();
+        ctx.ellipse(-10, -70, 8, 25, -0.2 + Math.sin(t * 4) * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(10, -70, 8, 25, 0.2 - Math.sin(t * 4) * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inner ears
+        ctx.fillStyle = '#fab1a0';
+        ctx.beginPath();
+        ctx.ellipse(-10, -70, 4, 18, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(10, -70, 4, 18, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(-8, -42, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(8, -42, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nose
+        ctx.fillStyle = '#fab1a0';
+        ctx.beginPath();
+        ctx.arc(0, -35, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Tail
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(0, 30, 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawBird(x, y, t, scale = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        const fly = Math.sin(t * 4) * 20;
+        ctx.translate(0, fly);
+
+        // Wings
+        ctx.fillStyle = '#0984e3';
+        ctx.save();
+        ctx.rotate(Math.sin(t * 8) * 0.5);
+        ctx.beginPath();
+        ctx.ellipse(-30, 0, 25, 10, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.rotate(-Math.sin(t * 8) * 0.5);
+        ctx.beginPath();
+        ctx.ellipse(30, 0, 25, 10, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Body
+        ctx.fillStyle = '#74b9ff';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 18, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(0, -25, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(-5, -27, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(5, -27, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(-4, -26, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(6, -26, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Beak
+        ctx.fillStyle = '#fdcb6e';
+        ctx.beginPath();
+        ctx.moveTo(0, -22);
+        ctx.lineTo(-5, -18);
+        ctx.lineTo(5, -18);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawLion(x, y, t, scale = 1) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        const roar = Math.sin(t * 3) > 0.7;
+
+        // Mane
+        ctx.fillStyle = '#e17055';
+        for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2 + Math.sin(t * 2) * 0.1;
+            ctx.beginPath();
+            ctx.ellipse(
+                Math.cos(a) * 30, -40 + Math.sin(a) * 30,
+                15, 12, a, 0, Math.PI * 2
+            );
+            ctx.fill();
+        }
+
+        // Body
+        ctx.fillStyle = '#fdcb6e';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 35, 30, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(0, -40, 28, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.beginPath();
+        ctx.arc(-20, -60, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(20, -60, 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(-10, -43, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(10, -43, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nose
+        ctx.fillStyle = '#e17055';
+        ctx.beginPath();
+        ctx.arc(0, -33, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Mouth (roar!)
+        if (roar) {
+            ctx.fillStyle = '#d63031';
+            ctx.beginPath();
+            ctx.ellipse(0, -24, 15, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Teeth
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.moveTo(-8, -28);
+            ctx.lineTo(-5, -22);
+            ctx.lineTo(-2, -28);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(2, -28);
+            ctx.lineTo(5, -22);
+            ctx.lineTo(8, -28);
+            ctx.fill();
+        } else {
+            ctx.strokeStyle = '#e17055';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, -30, 8, 0.3, Math.PI - 0.3);
+            ctx.stroke();
+        }
+
+        // Tail
+        ctx.strokeStyle = '#fdcb6e';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(30, 10);
+        ctx.quadraticCurveTo(55, -10 + Math.sin(t * 4) * 15, 50, -30);
+        ctx.stroke();
+        // Tail tip
+        ctx.fillStyle = '#e17055';
+        ctx.beginPath();
+        ctx.arc(50, -30, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    // ===== LYRICS RENDERER =====
+    function drawLyrics(t) {
+        const currentLyric = LYRICS.find(l => t >= l.t && t < l.t + l.dur);
+        if (!currentLyric) return;
+
+        const progress = (t - currentLyric.t) / currentLyric.dur;
+        const bounce = Math.sin(progress * Math.PI) * 20;
+        const scale = 0.8 + Math.sin(progress * Math.PI) * 0.3;
+
+        ctx.save();
+        ctx.translate(W / 2, H * 0.15 - bounce);
+        ctx.scale(scale, scale);
+
+        const text = currentLyric.text;
+        ctx.font = 'bold 56px "Comic Sans MS", cursive';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Text shadow/outline
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 8;
+        ctx.strokeText(text, 0, 0);
+
+        // Rainbow text for chorus
+        const scene = getScene(t);
+        if (scene && (scene.name.includes('chorus') || scene.name === 'finalchorus')) {
+            const grad = ctx.createLinearGradient(-300, 0, 300, 0);
+            const hShift = t * 100;
+            grad.addColorStop(0, `hsl(${hShift % 360}, 90%, 65%)`);
+            grad.addColorStop(0.25, `hsl(${(hShift + 90) % 360}, 90%, 65%)`);
+            grad.addColorStop(0.5, `hsl(${(hShift + 180) % 360}, 90%, 65%)`);
+            grad.addColorStop(0.75, `hsl(${(hShift + 270) % 360}, 90%, 65%)`);
+            grad.addColorStop(1, `hsl(${(hShift + 360) % 360}, 90%, 65%)`);
+            ctx.fillStyle = grad;
+        } else {
+            ctx.fillStyle = '#ffffff';
+        }
+        ctx.fillText(text, 0, 0);
+
+        ctx.restore();
+    }
+
+    // ===== SCENE MANAGER =====
+    function getScene(t) {
+        return SCENES.find(s => t >= s.start && t < s.end);
+    }
+
+    function getAction(t) {
+        const scene = getScene(t);
+        if (!scene) return 'dance';
+
+        switch (scene.name) {
+            case 'intro': return 'wave';
+            case 'verse1':
+                if (t < 14) return 'wave';
+                if (t < 20) return 'dance';
+                if (t < 23) return 'clap';
+                if (t < 26) return 'jump';
+                if (t < 29) return 'spin';
+                return 'dance';
+            case 'chorus1':
+            case 'chorus1repeat':
+            case 'chorus2':
+                if (Math.floor(t) % 4 < 2) return 'jump';
+                return 'wiggle';
+            case 'verse2':
+                if (t < 71) return 'walk';
+                if (t < 74) return 'jump';
+                if (t < 77) return 'jump';
+                if (t < 80) return 'wave';
+                if (t < 83) return 'jump';
+                return 'freeze';
+            case 'funbreak':
+                if (t < 110) return 'clap';
+                if (t < 114) return 'jump';
+                if (t < 118) return 'spin';
+                return 'freeze';
+            case 'finalchorus': return 'dance';
+            case 'outro': return 'wave';
+            default: return 'dance';
+        }
+    }
+
+    // ===== MAIN RENDER =====
+    let lastConfettiSpawn = 0;
+
+    function render(t) {
+        ctx.clearRect(0, 0, W, H);
+        const scene = getScene(t);
+        if (!scene) return;
+
+        // Draw background based on scene
+        switch (scene.name) {
+            case 'intro':
+                drawBgIntro(t);
+                break;
+            case 'verse1':
+                drawBgSunny(t);
+                break;
+            case 'chorus1':
+            case 'chorus1repeat':
+                drawBgParty(t);
+                if (t - lastConfettiSpawn > 0.3) {
+                    spawnConfetti(5);
+                    lastConfettiSpawn = t;
+                }
+                break;
+            case 'verse2':
+                drawBgJungle(t);
+                break;
+            case 'chorus2':
+                drawBgParty(t);
+                if (t - lastConfettiSpawn > 0.2) {
+                    spawnConfetti(8);
+                    lastConfettiSpawn = t;
+                }
+                break;
+            case 'funbreak':
+                if (t >= 118) {
+                    drawBgFreeze(t);
+                } else {
+                    drawBgSunny(t);
+                }
+                break;
+            case 'finalchorus':
+                drawBgParty(t);
+                if (t - lastConfettiSpawn > 0.15) {
+                    spawnConfetti(10);
+                    lastConfettiSpawn = t;
+                }
+                break;
+            case 'outro':
+                drawBgOutro(t);
+                break;
+        }
+
+        // Draw characters
+        const action = getAction(t);
+
+        // Main kid character (always visible)
+        const kidX = W / 2;
+        const kidY = H * 0.6;
+        drawKid(kidX, kidY, t, action, 2.0);
+
+        // Verse 2 animals
+        if (scene.name === 'verse2') {
+            const animalProgress = (t - scene.start) / (scene.end - scene.start);
+            if (t >= 65) drawMonkey(W * 0.2, H * 0.55, t, 1.5);
+            if (t >= 74) drawBunny(W * 0.75, H * 0.6, t, 1.5);
+            if (t >= 77) drawBird(W * 0.85, H * 0.35, t, 1.5);
+            if (t >= 80) drawLion(W * 0.15, H * 0.65, t, 1.3);
+        }
+
+        // Chorus — extra dancing kids on sides
+        if (scene.name.includes('chorus') || scene.name === 'finalchorus') {
+            drawKid(W * 0.2, H * 0.65, t + 0.5, action, 1.3);
+            drawKid(W * 0.8, H * 0.65, t + 1.0, action, 1.3);
+            if (scene.name === 'finalchorus') {
+                drawKid(W * 0.35, H * 0.7, t + 1.5, action, 1.1);
+                drawKid(W * 0.65, H * 0.7, t + 2.0, action, 1.1);
+            }
+        }
+
+        // Fun break animals come back
+        if (scene.name === 'funbreak') {
+            drawMonkey(W * 0.15, H * 0.6, t, 1.2);
+            drawBunny(W * 0.85, H * 0.55, t, 1.2);
+            drawBird(W * 0.75, H * 0.3, t, 1.0);
+        }
+
+        // Outro — all characters wave
+        if (scene.name === 'outro') {
+            drawKid(W * 0.3, H * 0.6, t, 'wave', 1.5);
+            drawKid(W * 0.7, H * 0.6, t, 'wave', 1.5);
+            drawMonkey(W * 0.15, H * 0.65, t, 1.0);
+            drawBunny(W * 0.85, H * 0.6, t, 1.0);
+            drawBird(W * 0.5, H * 0.25, t, 1.2);
+            drawLion(W * 0.9, H * 0.7, t, 1.0);
+        }
+
+        // Particles & effects
+        updateParticles();
+        drawParticles();
+
+        // Spawn particles on beats
+        if (scene.name.includes('chorus') || scene.name === 'finalchorus') {
+            if (Math.sin(t * 8) > 0.95) {
+                spawnParticles(
+                    kidX + (Math.random() - 0.5) * 200,
+                    kidY - 50,
+                    5,
+                    ['#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#54a0ff']
+                );
+            }
+        }
+
+        // Draw lyrics on top
+        drawLyrics(t);
+
+        // Scene transition flash
+        const sceneProgress = (t - scene.start);
+        if (sceneProgress < 0.3) {
+            ctx.fillStyle = `rgba(255,255,255,${(0.3 - sceneProgress) / 0.3 * 0.5})`;
+            ctx.fillRect(0, 0, W, H);
+        }
+    }
+
+    // ===== ANIMATION LOOP =====
+    function animate(timestamp) {
+        if (!startTime) startTime = timestamp;
+        elapsed = (timestamp - startTime) / 1000;
+
+        if (elapsed >= TOTAL_DURATION) {
+            elapsed = TOTAL_DURATION;
+            render(elapsed);
+            isPlaying = false;
+            timerEl.textContent = formatTime(TOTAL_DURATION) + ' / ' + formatTime(TOTAL_DURATION) + ' ✓';
+            sceneLabel.textContent = '🎬 Done!';
+            return;
+        }
+
+        render(elapsed);
+        updateUI(elapsed);
+        animId = requestAnimationFrame(animate);
+    }
+
+    function updateUI(t) {
+        timerEl.textContent = formatTime(t) + ' / ' + formatTime(TOTAL_DURATION);
+        const scene = getScene(t);
+        if (scene) {
+            const labels = {
+                'intro': '🎬 Intro',
+                'verse1': '🎵 Verse 1',
+                'chorus1': '🎶 Chorus',
+                'chorus1repeat': '🎶 Chorus (repeat)',
+                'verse2': '🐒 Verse 2 - Animals!',
+                'chorus2': '🎶 Chorus 2',
+                'funbreak': '🎉 Fun Break!',
+                'finalchorus': '🔥 Final Chorus!',
+                'outro': '👋 Outro',
+            };
+            sceneLabel.textContent = labels[scene.name] || scene.name;
+        }
+    }
+
+    function formatTime(s) {
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return m + ':' + sec.toString().padStart(2, '0');
+    }
+
+    // ===== AUDIO =====
+    const audio = new Audio('music.mp3');
+    audio.loop = false;
+    let audioLoaded = false;
+    audio.addEventListener('canplaythrough', () => { audioLoaded = true; });
+    audio.addEventListener('error', () => { 
+        console.log('No music.mp3 found — playing animation without audio');
+        audioLoaded = false; 
+    });
+
+    // ===== CONTROLS =====
+    document.getElementById('playBtn').addEventListener('click', () => {
+        if (isPlaying && !isPaused) return;
+        if (isPaused) {
+            isPaused = false;
+            startTime = performance.now() - pauseTime * 1000;
+            if (audioLoaded) { audio.currentTime = pauseTime; audio.play(); }
+            animId = requestAnimationFrame(animate);
+        } else {
+            isPlaying = true;
+            isPaused = false;
+            startTime = null;
+            particles = [];
+            confetti = [];
+            lastConfettiSpawn = 0;
+            if (audioLoaded) { audio.currentTime = 0; audio.play(); }
+            animId = requestAnimationFrame(animate);
+        }
+    });
+
+    document.getElementById('pauseBtn').addEventListener('click', () => {
+        if (!isPlaying || isPaused) return;
+        isPaused = true;
+        pauseTime = elapsed;
+        cancelAnimationFrame(animId);
+        if (audioLoaded) audio.pause();
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        isPlaying = false;
+        isPaused = false;
+        if (animId) cancelAnimationFrame(animId);
+        startTime = null;
+        elapsed = 0;
+        particles = [];
+        confetti = [];
+        render(0);
+        timerEl.textContent = '0:00 / ' + formatTime(TOTAL_DURATION);
+        sceneLabel.textContent = '🎬 Ready';
+        if (audioLoaded) { audio.pause(); audio.currentTime = 0; }
+    });
+
+    // Initial render
+    render(0);
+    </script>
+</body>
+</html>
